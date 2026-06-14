@@ -159,12 +159,12 @@ class Deduplicator:
 	
 	def __init__(
 		self,
-		root: Path,
+		roots: list[Path],
 		min_size: int = MIN_FILE_SIZE,
 		workers: int = None,
 		verbose: bool = True
 	):
-		self.root = Path(root).resolve()
+		self.roots = [Path(r).resolve() for r in roots]
 		self.min_size = min_size
 		self.workers = workers or os.cpu_count() or 4
 		self.verbose = verbose
@@ -176,20 +176,21 @@ class Deduplicator:
 	
 	def scan(self) -> int:
 		"""
-		Scan directory tree for regular files.
+		Scan directory trees for regular files.
 		Returns number of files found.
 		"""
 		self.files = []
-		self.log(f"📂 Scanning {self.root}...")
+		for root in self.roots:
+			self.log(f"📂 Scanning {root}...")
 		
-		for entry in tqdm(self.root.rglob("*"), desc="Scanning", disable=not self.verbose):
-			try:
-				if entry.is_file() and not entry.is_symlink():
-					size = entry.stat().st_size
-					if size >= self.min_size:
-						self.files.append(FileInfo(path=entry, size=size))
-			except (PermissionError, OSError):
-				continue
+			for entry in tqdm(root.rglob("*"), desc="Scanning", disable=not self.verbose):
+				try:
+					if entry.is_file() and not entry.is_symlink():
+						size = entry.stat().st_size
+						if size >= self.min_size:
+							self.files.append(FileInfo(path=entry, size=size))
+				except (PermissionError, OSError):
+					continue
 		
 		self.log(f"   Found {len(self.files):,} files (>= {self.min_size} bytes)")
 		return len(self.files)
@@ -445,6 +446,7 @@ def main():
 		epilog="""
 Examples:
   %(prog)s ~/Documents                    # Dry run on Documents
+  %(prog)s ~/Documents ~/Projects         # Dry run on multiple directories
   %(prog)s ~/Documents --execute          # Actually deduplicate
   %(prog)s ~/Documents --execute --cautious  # Interactive mode with auditing
   %(prog)s . --min-size 1048576           # Only files >= 1MB
@@ -454,10 +456,9 @@ Examples:
 	
 	parser.add_argument(
 		"path",
-		nargs="?",
-		default=".",
+		nargs="*",
 		type=Path,
-		help="Directory to deduplicate (default: current directory)"
+		help="Directories to deduplicate (default: current directory)"
 	)
 	parser.add_argument(
 		"-w", "--workers",
@@ -494,13 +495,15 @@ Examples:
 	
 	args = parser.parse_args()
 	
-	if not args.path.exists():
-		print(f"Error: {args.path} does not exist", file=sys.stderr)
-		sys.exit(1)
+	directories = args.path if args.path else [Path(".")]
 	
-	if not args.path.is_dir():
-		print(f"Error: {args.path} is not a directory", file=sys.stderr)
-		sys.exit(1)
+	for d in directories:
+		if not d.exists():
+			print(f"Error: {d} does not exist", file=sys.stderr)
+			sys.exit(1)
+		if not d.is_dir():
+			print(f"Error: {d} is not a directory", file=sys.stderr)
+			sys.exit(1)
 	
 	# Check we're on APFS
 	if _clonefile_func is None:
@@ -518,7 +521,7 @@ Examples:
 		print("⚠️  EXECUTE MODE — files will be modified!\n")
 	
 	dedup = Deduplicator(
-		root=args.path,
+		roots=directories,
 		min_size=args.min_size,
 		workers=args.workers,
 		verbose=not args.quiet

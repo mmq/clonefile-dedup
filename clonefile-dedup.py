@@ -505,6 +505,13 @@ Examples:
 			print(f"Error: {d} is not a directory", file=sys.stderr)
 			sys.exit(1)
 	
+	if len(directories) > 1:
+		first_dev = os.stat(directories[0]).st_dev
+		for d in directories[1:]:
+			if os.stat(d).st_dev != first_dev:
+				print(f"Error: {d} is on a different filesystem than {directories[0]}", file=sys.stderr)
+				sys.exit(1)
+	
 	# Check we're on APFS
 	if _clonefile_func is None:
 		print("Error: clonefile not available. This tool requires macOS with APFS.", file=sys.stderr)
